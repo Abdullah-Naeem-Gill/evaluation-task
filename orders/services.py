@@ -18,11 +18,6 @@ def _aggregate_order_items(items_data):
     for item in items_data:
         product = item['product']
         quantity = item['quantity']
-        if quantity <= 0:
-            raise OrderServiceError(
-                'Quantity must be greater than zero.',
-                field='items',
-            )
         if product.pk in aggregated:
             aggregated[product.pk]['quantity'] += quantity
         else:
@@ -35,13 +30,10 @@ def create_order(customer, items_data):
     Create an order and its items atomically.
 
     items_data: iterable of dicts with ``product`` (Product) and ``quantity`` (int).
+    Input shape is validated by OrderCreateSerializer before this is called.
     Rolls back entirely if any line fails stock validation.
     """
-    items_data = list(items_data)
-    if not items_data:
-        raise OrderServiceError('Order must contain at least one item.', field='items')
-
-    aggregated_items = _aggregate_order_items(items_data)
+    aggregated_items = _aggregate_order_items(list(items_data))
 
     with transaction.atomic():
         product_ids = [item['product'].pk for item in aggregated_items]
@@ -51,13 +43,7 @@ def create_order(customer, items_data):
         }
 
         for item in aggregated_items:
-            product = products.get(item['product'].pk)
-            if product is None:
-                raise OrderServiceError(
-                    f'Invalid product id: {item["product"].pk}.',
-                    field='items',
-                )
-
+            product = products[item['product'].pk]
             quantity = item['quantity']
             if product.stock_quantity < quantity:
                 raise OrderServiceError(
